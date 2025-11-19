@@ -1,0 +1,323 @@
+-- ===================================
+-- ROM HACK ADDRESS FINDER
+-- Copy and paste this entire script into mGBA Scripting Console
+-- ===================================
+
+print("╔════════════════════════════════════════════════╗")
+print("║   ROM HACK ADDRESS FINDER FOR RUN AND BUN     ║")
+print("╚════════════════════════════════════════════════╝")
+print("")
+
+-- ===================================
+-- STEP 1: ENTER YOUR INFORMATION
+-- ===================================
+
+-- IMPORTANT: Edit this with YOUR Trainer ID from your game
+-- (Press START → Trainer Card to see it)
+local YOUR_TRAINER_ID = 28810  -- ← CHANGE THIS NUMBER!
+
+-- IMPORTANT: Edit this with YOUR first Pokemon's level
+local YOUR_POKEMON_LEVEL = 12   -- ← CHANGE THIS NUMBER!
+
+print("Searching for:")
+print(string.format("  Trainer ID: %d", YOUR_TRAINER_ID))
+print(string.format("  Pokemon Level: %d", YOUR_POKEMON_LEVEL))
+print("")
+
+-- ===================================
+-- FUNCTION: Find Trainer ID
+-- ===================================
+
+function find_trainer_id()
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("SEARCHING FOR TRAINER ID...")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    
+    local found_addresses = {}
+    
+    for addr = 0x02000000, 0x02040000, 2 do
+        local value = emu:read16(addr)
+        if value == YOUR_TRAINER_ID then
+            table.insert(found_addresses, addr)
+            print(string.format("  ✓ Found at: 0x%08X", addr))
+        end
+    end
+    
+    if #found_addresses == 0 then
+        print("  ✗ NOT FOUND - Check your Trainer ID is correct!")
+        print("    Open Trainer Card in-game and verify the number")
+        return nil
+    else
+        print(string.format("\nFound %d matches!", #found_addresses))
+        print("\n📝 COPY THESE ADDRESSES:")
+        for _, addr in ipairs(found_addresses) do
+            print(string.format("  0x%08X", addr))
+        end
+        return found_addresses
+    end
+end
+
+-- ===================================
+-- FUNCTION: Find Party Data
+-- ===================================
+
+function find_party()
+    print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("SEARCHING FOR PARTY DATA...")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    
+    local candidates = {}
+    
+    for addr = 0x02020000, 0x02030000, 4 do
+        local party_count = emu:read8(addr)
+        
+        -- Valid party count (1-6)
+        if party_count >= 1 and party_count <= 6 then
+            -- Check if Pokemon data follows
+            local pokemon_base = addr + 4
+            local pid = emu:read32(pokemon_base)
+            local otid = emu:read32(pokemon_base + 4)
+            local level = emu:read8(pokemon_base + 84)
+            local hp = emu:read16(pokemon_base + 86)
+            local max_hp = emu:read16(pokemon_base + 88)
+            
+            -- Validation
+            if pid > 0 and level >= 1 and level <= 100 and hp > 0 and hp <= max_hp and max_hp < 1000 then
+                local match_score = 0
+                
+                -- Extra points if level matches
+                if level == YOUR_POKEMON_LEVEL then
+                    match_score = match_score + 10
+                end
+                
+                -- Extract species
+                local key = pid ~ otid  -- XOR
+                local chunk0 = emu:read32(pokemon_base + 32)
+                local decrypted = chunk0 ~ key
+                local species = decrypted % 65536
+                
+                -- Valid species (1-386 for Gen 3, but ROM hacks may have more)
+                if species >= 1 and species <= 1000 then
+                    match_score = match_score + 5
+                end
+                
+                table.insert(candidates, {
+                    count_addr = addr,
+                    base_addr = pokemon_base,
+                    party_count = party_count,
+                    pid = pid,
+                    otid = otid,
+                    level = level,
+                    hp = hp,
+                    max_hp = max_hp,
+                    species = species,
+                    score = match_score
+                })
+            end
+        end
+    end
+    
+    if #candidates == 0 then
+        print("  ✗ NOT FOUND")
+        print("    Make sure you have Pokemon in your party!")
+        return nil
+    end
+    
+    -- Sort by score
+    table.sort(candidates, function(a, b) return a.score > b.score end)
+    
+    print(string.format("\nFound %d potential party locations:", #candidates))
+    print("")
+    
+    for i, candidate in ipairs(candidates) do
+        print(string.format("CANDIDATE #%d (Score: %d)", i, candidate.score))
+        print(string.format("  Party Count Address: 0x%08X (value: %d)", candidate.count_addr, candidate.party_count))
+        print(string.format("  Party Base Address:  0x%08X", candidate.base_addr))
+        print(string.format("  First Pokemon:"))
+        print(string.format("    PID:     0x%08X", candidate.pid))
+        print(string.format("    OTID:    0x%08X", candidate.otid))
+        print(string.format("    Species: %d", candidate.species))
+        print(string.format("    Level:   %d %s", candidate.level, candidate.level == YOUR_POKEMON_LEVEL and "← MATCHES!" or ""))
+        print(string.format("    HP:      %d/%d", candidate.hp, candidate.max_hp))
+        print("")
+    end
+    
+    local best = candidates[1]
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("📝 MOST LIKELY PARTY ADDRESS:")
+    print(string.format("  Count at: 0x%08X", best.count_addr))
+    print(string.format("  Base at:  0x%08X", best.base_addr))
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    
+    return best
+end
+
+-- ===================================
+-- FUNCTION: Find PC Box Data
+-- ===================================
+
+function find_boxes()
+    print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("SEARCHING FOR PC BOX DATA...")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    
+    local candidates = {}
+    
+    -- Test common ranges
+    local ranges = {
+        {0x02028000, 0x02029000, "Lower range"},
+        {0x0202884C, 0x0202984C, "Fire Red default area"},
+        {0x02029000, 0x0202A000, "Upper range"}
+    }
+    
+    for _, range in ipairs(ranges) do
+        local start_addr, end_addr, name = range[1], range[2], range[3]
+        print(string.format("  Checking %s (0x%08X-0x%08X)...", name, start_addr, end_addr))
+        
+        for addr = start_addr, end_addr, 4 do
+            local count = 0
+            local valid_count = 0
+            
+            -- Check first box (30 slots, 80 bytes each)
+            for slot = 0, 29 do
+                local slot_addr = addr + (slot * 80)
+                local pid = emu:read32(slot_addr)
+                
+                if pid > 0 then
+                    count = count + 1
+                    
+                    -- Quick validation
+                    local otid = emu:read32(slot_addr + 4)
+                    if otid > 0 then
+                        valid_count = valid_count + 1
+                    end
+                end
+            end
+            
+            if count > 0 then
+                table.insert(candidates, {
+                    addr = addr,
+                    pokemon_count = count,
+                    valid_count = valid_count
+                })
+            end
+        end
+    end
+    
+    if #candidates == 0 then
+        print("  ✗ NOT FOUND")
+        print("    This is OK - boxes are optional")
+        print("    (Or you haven't stored any Pokemon in boxes yet)")
+        return nil
+    end
+    
+    print(string.format("\nFound %d potential box locations:", #candidates))
+    print("")
+    
+    for i, candidate in ipairs(candidates) do
+        print(string.format("CANDIDATE #%d:", i))
+        print(string.format("  Address: 0x%08X", candidate.addr))
+        print(string.format("  Pokemon found: %d (%d valid)", candidate.pokemon_count, candidate.valid_count))
+        print("")
+    end
+    
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("📝 COPY THE ADDRESS WITH THE MOST POKEMON:")
+    for _, candidate in ipairs(candidates) do
+        if candidate.valid_count > 0 then
+            print(string.format("  0x%08X (%d Pokemon)", candidate.addr, candidate.valid_count))
+        end
+    end
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    
+    return candidates[1]
+end
+
+-- ===================================
+-- FUNCTION: Generate Report
+-- ===================================
+
+function generate_report(tid_addrs, party_data, box_data)
+    print("\n")
+    print("╔════════════════════════════════════════════════╗")
+    print("║              FINAL REPORT                      ║")
+    print("╚════════════════════════════════════════════════╝")
+    print("")
+    print("ROM: Pokemon Run and Bun")
+    print(string.format("Trainer ID: %d (0x%04X)", YOUR_TRAINER_ID, YOUR_TRAINER_ID))
+    print("")
+    
+    if tid_addrs and #tid_addrs > 0 then
+        print("Trainer ID found at:")
+        for _, addr in ipairs(tid_addrs) do
+            print(string.format("  • 0x%08X", addr))
+        end
+    else
+        print("Trainer ID: ✗ NOT FOUND")
+    end
+    print("")
+    
+    if party_data then
+        print("Party Data:")
+        print(string.format("  • Party Count Address: 0x%08X", party_data.count_addr))
+        print(string.format("  • Party Base Address:  0x%08X", party_data.base_addr))
+    else
+        print("Party Data: ✗ NOT FOUND")
+    end
+    print("")
+    
+    if box_data then
+        print("PC Box Data:")
+        print(string.format("  • Box Base Address: 0x%08X", box_data.addr))
+    else
+        print("PC Box Data: Not found (optional)")
+    end
+    print("")
+    
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("COPY THIS INFO AND SEND IT:")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print(string.format("Trainer ID: %d", YOUR_TRAINER_ID))
+    if tid_addrs and #tid_addrs > 0 then
+        print(string.format("TID Address: 0x%08X", tid_addrs[1]))
+    end
+    if party_data then
+        print(string.format("Party Count: 0x%08X", party_data.count_addr))
+        print(string.format("Party Base: 0x%08X", party_data.base_addr))
+    end
+    if box_data then
+        print(string.format("Box Base: 0x%08X", box_data.addr))
+    end
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+end
+
+-- ===================================
+-- RUN ALL SEARCHES
+-- ===================================
+
+print("\n⚠️  BEFORE RUNNING:")
+print("  1. Make sure YOUR_TRAINER_ID is set correctly at the top")
+print("  2. Make sure YOUR_POKEMON_LEVEL is set correctly at the top")
+print("  3. Make sure you have at least 1 Pokemon in your party")
+print("\nStarting search in 3 seconds...")
+print("")
+
+-- Wait a moment
+local wait_frames = 180
+local frame_count = 0
+
+callbacks:add("frame", function()
+    frame_count = frame_count + 1
+    if frame_count == wait_frames then
+        -- Run searches
+        local tid_addrs = find_trainer_id()
+        local party_data = find_party()
+        local box_data = find_boxes()
+        
+        -- Generate report
+        generate_report(tid_addrs, party_data, box_data)
+        
+        print("\n✅ SEARCH COMPLETE!")
+        print("Send me the addresses above and I'll create your custom script!")
+    end
+end)
