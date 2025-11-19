@@ -1,0 +1,15 @@
+{
+  "api": {
+    "base_url": "http://localhost:5000/api",
+    "api_key": "your-api-key-here-if-needed"
+  },
+  "monitoring": {
+    "log_file": "/path/to/emulator/output.log",
+    "poll_interval": 1.0,
+    "process_existing_on_start": false
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "nuzlocke_tracker.log"
+  }
+}
