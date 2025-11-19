@@ -14,10 +14,10 @@ print("")
 
 -- IMPORTANT: Edit this with YOUR Trainer ID from your game
 -- (Press START → Trainer Card to see it)
-local YOUR_TRAINER_ID = 12345  -- ← CHANGE THIS NUMBER!
+local YOUR_TRAINER_ID = 28810  -- ← CHANGE THIS NUMBER!
 
 -- IMPORTANT: Edit this with YOUR first Pokemon's level
-local YOUR_POKEMON_LEVEL = 5   -- ← CHANGE THIS NUMBER!
+local YOUR_POKEMON_LEVEL = 12   -- ← CHANGE THIS NUMBER!
 
 print("Searching for:")
 print(string.format("  Trainer ID: %d", YOUR_TRAINER_ID))
